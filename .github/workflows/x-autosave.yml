@@ -13,9 +13,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  prepare-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      users: ${{ steps.set-matrix.outputs.users }}
+    steps:
+      - name: Parse Usernames
+        id: set-matrix
+        env:
+          X_USERNAMES: ${{ secrets.X_USERNAMES }}
+        run: |
+          JSON_ARRAY=$(echo -n "$X_USERNAMES" | jq -R -c 'split(",") | map(gsub("^\\s+|\\s+$"; ""))')
+          echo "users=$JSON_ARRAY" >> "$GITHUB_OUTPUT"
+
   save-media:
+    needs: prepare-matrix
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        username: ${{ fromJson(needs.prepare-matrix.outputs.users) }}
 
     steps:
       - name: Install gallery-dl and rclone
@@ -44,7 +63,7 @@ jobs:
 
       - name: Restore download history
         env:
-          X_USERNAME: ${{ secrets.X_USERNAME }}
+          X_USERNAME: ${{ matrix.username }}
         run: |
           rclone copyto \
             "gdrive:X_AutoSave/.state/${X_USERNAME}.sqlite3" \
@@ -53,7 +72,7 @@ jobs:
 
       - name: Check X and download new media
         env:
-          X_USERNAME: ${{ secrets.X_USERNAME }}
+          X_USERNAME: ${{ matrix.username }}
           X_START_DATE: ${{ secrets.X_START_DATE }}
         run: |
           set +e
@@ -81,7 +100,7 @@ jobs:
       - name: Upload new media to Google Drive
         if: always()
         env:
-          X_USERNAME: ${{ secrets.X_USERNAME }}
+          X_USERNAME: ${{ matrix.username }}
         run: |
           if [ -d "downloads/${X_USERNAME}" ]; then
             rclone copy \
@@ -92,7 +111,7 @@ jobs:
       - name: Save download history
         if: always()
         env:
-          X_USERNAME: ${{ secrets.X_USERNAME }}
+          X_USERNAME: ${{ matrix.username }}
         run: |
           if [ -f "state/archive.sqlite3" ]; then
             rclone copyto \
