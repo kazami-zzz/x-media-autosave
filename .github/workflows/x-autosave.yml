@@ -1,0 +1,106 @@
+name: X Media AutoSave
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x-media-autosave
+  cancel-in-progress: true
+
+jobs:
+  save-media:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Install gallery-dl and rclone
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade gallery-dl
+          curl https://rclone.org/install.sh | sudo bash
+
+      - name: Restore credentials
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          X_COOKIES_B64: ${{ secrets.X_COOKIES_B64 }}
+        run: |
+          mkdir -p "$HOME/.config/rclone"
+          mkdir -p state
+          mkdir -p downloads
+
+          printf '%s' "$RCLONE_CONFIG_B64" \
+            | base64 -d > "$HOME/.config/rclone/rclone.conf"
+
+          printf '%s' "$X_COOKIES_B64" \
+            | base64 -d > cookies.txt
+
+          chmod 600 "$HOME/.config/rclone/rclone.conf"
+          chmod 600 cookies.txt
+
+      - name: Restore download history
+        env:
+          X_USERNAME: ${{ secrets.X_USERNAME }}
+        run: |
+          rclone copyto \
+            "gdrive:X_AutoSave/.state/${X_USERNAME}.sqlite3" \
+            "state/archive.sqlite3" \
+            || true
+
+      - name: Check X and download new media
+        env:
+          X_USERNAME: ${{ secrets.X_USERNAME }}
+          X_START_DATE: ${{ secrets.X_START_DATE }}
+        run: |
+          set +e
+
+          mkdir -p "downloads/${X_USERNAME}"
+
+          gallery-dl \
+            --cookies cookies.txt \
+            --download-archive state/archive.sqlite3 \
+            --date-after "$X_START_DATE" \
+            --abort 5 \
+            --directory "downloads/${X_USERNAME}" \
+            -o extractor.twitter.retweets=false \
+            -o extractor.twitter.quoted=false \
+            -o extractor.twitter.replies=false \
+            -o extractor.twitter.videos=true \
+            -o extractor.twitter.ratelimit=abort \
+            "https://x.com/${X_USERNAME}/media"
+
+          RESULT=$?
+          echo "GALLERY_DL_RESULT=$RESULT" >> "$GITHUB_ENV"
+
+          exit 0
+
+      - name: Upload new media to Google Drive
+        if: always()
+        env:
+          X_USERNAME: ${{ secrets.X_USERNAME }}
+        run: |
+          if [ -d "downloads/${X_USERNAME}" ]; then
+            rclone copy \
+              "downloads/${X_USERNAME}" \
+              "gdrive:X_AutoSave/${X_USERNAME}"
+          fi
+
+      - name: Save download history
+        if: always()
+        env:
+          X_USERNAME: ${{ secrets.X_USERNAME }}
+        run: |
+          if [ -f "state/archive.sqlite3" ]; then
+            rclone copyto \
+              "state/archive.sqlite3" \
+              "gdrive:X_AutoSave/.state/${X_USERNAME}.sqlite3"
+          fi
+
+      - name: Report gallery-dl failure
+        if: always()
+        run: |
+          exit "${GALLERY_DL_RESULT:-0}"
