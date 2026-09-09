@@ -62,7 +62,7 @@ jobs:
 
       - name: Test Google Drive authentication
         run: |
-        rclone lsd gdrive:
+          rclone lsd gdrive:
 
       - name: Restore download history
         env:
