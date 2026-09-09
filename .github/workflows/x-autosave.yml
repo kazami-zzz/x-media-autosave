@@ -59,9 +59,9 @@ jobs:
           chmod 600 "$HOME/.config/rclone/rclone.conf"
           chmod 600 cookies.txt
 
-          - name: Test Google Drive authentication
-            run: |
-              rclone lsd gdrive:
+      - name: Test Google Drive authentication
+        run: |
+          rclone lsd gdrive:
 
       - name: Restore download history
         env:
