@@ -59,6 +59,13 @@ jobs:
           chmod 600 "$HOME/.config/rclone/rclone.conf"
           chmod 600 cookies.txt
 
+      - name: Verify rclone config
+        run: |
+          echo "rclone config SHA256:"
+          sha256sum "$HOME/.config/rclone/rclone.conf"
+          echo "rclone version:"
+          rclone version
+ 
       - name: Test Google Drive authentication
         run: |
           rclone lsd gdrive:
